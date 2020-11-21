@@ -23,19 +23,109 @@ const (
 )
 
 var (
-
+	commandFunc = make(map[string]func(*gumble.TextMessageEvent))
+	availableCommands = []string{PLAY, PAUSE, STOP}
 )
 
 func main() {
 	var stream *gumbleffmpeg.Stream
 	var offset time.Duration
 
-	
-
-	reCommand, err := regexp.Compile(fmt.Sprintf("(?:!)(%s)*", strings.Join([]string{PLAY, PAUSE, STOP}, "|")))
+	reCommand, err := regexp.Compile(fmt.Sprintf("(?:!)(%s)*", strings.Join(availableCommands, "|")))
 	if check(err) { return }
 	reHref, err := regexp.Compile("(?:\")(.*)(?:\")")
 	if check(err) { return }
+
+	submatchExtract := func (match [][]string) (string, error) {
+		err := errors.New("No match")
+		fmt.Println(match)
+		if len(match) > 0 && len(match[0]) > 1 {
+			return match[0][1], nil
+		}
+		return "", err
+	}
+
+	commandFunc[PLAY] = func(e *gumble.TextMessageEvent) {
+		streamStateInitial := stream != nil && (
+			stream.State() == 0	||
+			stream.State() == gumbleffmpeg.StateInitial )
+		streamStatePaused := stream != nil && 
+			stream.State() == gumbleffmpeg.StatePaused
+
+		if stream == nil {
+			matchesLink := reHref.FindAllStringSubmatch(e.Message, -1)
+			link, err := submatchExtract(matchesLink)
+			fmt.Println(link)
+			downloaded := "downloaded.ogg"
+			if check(err) { return }
+
+			cmd := exec.Command("youtube-dl","--extract-audio","--audio-format","vorbis", link, "--output", fmt.Sprintf("./%s", downloaded))
+			// "ytsearch1: " + e.Message[1:] + ""
+			if err := cmd.Run(); err == nil {
+				fmt.Printf("Descargado %s\n", link)
+			} else {
+				fmt.Printf("%s\n", err)
+			}
+
+			stream = gumbleffmpeg.New(e.Client, gumbleffmpeg.SourceFile(downloaded))
+			// stream.Volume = 0.01
+			if err := stream.Play(); err != nil {
+				fmt.Printf("%s\n", err)
+			} else {
+				fmt.Printf("Playing %s\n", link)
+			}
+			return 
+			
+		}
+
+		if streamStateInitial || streamStatePaused {
+			stream.Offset = offset
+			if err := stream.Play(); err != nil {
+				fmt.Printf("%s\n", err)
+			} else {
+				fmt.Printf("Playing\n")
+			}
+			return
+		}
+	}
+
+	commandFunc[PAUSE] = func(e *gumble.TextMessageEvent) {
+		streamStatePlaying := stream != nil &&
+					stream.State() == gumbleffmpeg.StatePlaying
+		fmt.Printf("Pause requirements: %v\n", streamStatePlaying)
+		if streamStatePlaying {
+			fmt.Println(e.Message)
+			if err := stream.Pause(); err != nil {
+				fmt.Printf("%s\n", err)
+			} else {
+				offset = stream.Offset
+				fmt.Printf("Pausing\n")
+			}
+			return
+		}
+	}
+
+	commandFunc[STOP] = func(e *gumble.TextMessageEvent) {
+		streamStatePaused := stream != nil && 
+					stream.State() == gumbleffmpeg.StatePaused
+		streamStatePlaying := stream != nil &&
+					stream.State() == gumbleffmpeg.StatePlaying
+		fmt.Printf("Stop requirements: %v\n", streamStatePlaying || streamStatePaused)
+		if streamStatePlaying || streamStatePaused {
+			if err := stream.Stop(); err != nil {
+				fmt.Printf("%s\n", err)
+			} else {
+				fmt.Printf("Stopped\n")
+				if err := os.Remove("downloaded.ogg"); err != nil {
+					fmt.Println("No se pudo borrar el archivo downloaded.ogg")
+				}
+				stream = nil
+			}
+			return
+		}
+	}
+
+	
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s: [flags] [audio files...]\n", os.Args[0])
@@ -53,99 +143,90 @@ func main() {
 				return
 			}
 
-			hasStream := stream != nil
-			streamStatePaused := hasStream && 
-					stream.State() == gumbleffmpeg.StatePaused
-			streamStateInitial := hasStream && (
-					stream.State() == 0	||
-					stream.State() == gumbleffmpeg.StateInitial )
-			streamStatePlaying := hasStream &&
-					stream.State() == gumbleffmpeg.StatePlaying
+			// hasStream := stream != nil
+			// streamStatePaused := hasStream && 
+			// 		stream.State() == gumbleffmpeg.StatePaused
+			// streamStateInitial := hasStream && (
+			// 		stream.State() == 0	||
+			// 		stream.State() == gumbleffmpeg.StateInitial )
+			// streamStatePlaying := hasStream &&
+			// 		stream.State() == gumbleffmpeg.StatePlaying
 
-			if hasStream {
-				fmt.Println(stream.State())
-			}
+			// if hasStream {
+			// 	fmt.Println(stream.State())
+			// }
 
 			matchesCommand := reCommand.FindAllStringSubmatch(e.Message, -1)
 			fmt.Println(matchesCommand)		
-			
-			submatchExtract := func (match [][]string) (string, error) {
-				err := errors.New("No match")
-				fmt.Println(match)
-				if len(match) > 0 && len(match[0]) > 1 {
-					return match[0][1], nil
-				}
-				return "", err
-			}
 		
 			command, err := submatchExtract(matchesCommand)
 			if check(err) { return }
-					
-			isPlayCommand := err == nil && strings.Contains(command, PLAY)
-			isPauseCommand := err == nil && strings.Contains(command, PAUSE)
-			isStopCommand := err == nil && strings.Contains(command, STOP)
+			commandFunc[command](e)
+			// isPlayCommand := err == nil && strings.Contains(command, PLAY)
+			// isPauseCommand := err == nil && strings.Contains(command, PAUSE)
+			// isStopCommand := err == nil && strings.Contains(command, STOP)
 
-			if !hasStream && isPlayCommand {
-				matchesLink := reHref.FindAllStringSubmatch(e.Message, -1)
-				link, err := submatchExtract(matchesLink)
-				fmt.Println(link)
-				downloaded := "downloaded.ogg"
-				if check(err) { return }
+			// if !hasStream && isPlayCommand {
+			// 	matchesLink := reHref.FindAllStringSubmatch(e.Message, -1)
+			// 	link, err := submatchExtract(matchesLink)
+			// 	fmt.Println(link)
+			// 	downloaded := "downloaded.ogg"
+			// 	if check(err) { return }
 
-				cmd := exec.Command("youtube-dl","--extract-audio","--audio-format","vorbis", link, "--output", fmt.Sprintf("./%s", downloaded))
-				// "ytsearch1: " + e.Message[1:] + ""
-				if err := cmd.Run(); err == nil {
-					fmt.Printf("Descargado %s\n", link)
-				} else {
-					fmt.Printf("%s\n", err)
-				}
+			// 	cmd := exec.Command("youtube-dl","--extract-audio","--audio-format","vorbis", link, "--output", fmt.Sprintf("./%s", downloaded))
+			// 	// "ytsearch1: " + e.Message[1:] + ""
+			// 	if err := cmd.Run(); err == nil {
+			// 		fmt.Printf("Descargado %s\n", link)
+			// 	} else {
+			// 		fmt.Printf("%s\n", err)
+			// 	}
 
-				stream = gumbleffmpeg.New(e.Client, gumbleffmpeg.SourceFile(downloaded))
-				// stream.Volume = 0.01
-				if err := stream.Play(); err != nil {
-					fmt.Printf("%s\n", err)
-				} else {
-					fmt.Printf("Playing %s\n", link)
-				}
-				return 
+			// 	stream = gumbleffmpeg.New(e.Client, gumbleffmpeg.SourceFile(downloaded))
+			// 	// stream.Volume = 0.01
+			// 	if err := stream.Play(); err != nil {
+			// 		fmt.Printf("%s\n", err)
+			// 	} else {
+			// 		fmt.Printf("Playing %s\n", link)
+			// 	}
+			// 	return 
 				
-			}
+			// }
 
-			if (streamStateInitial || streamStatePaused) && isPlayCommand {
-				stream.Offset = offset
-				if err := stream.Play(); err != nil {
-					fmt.Printf("%s\n", err)
-				} else {
-					fmt.Printf("Playing\n")
-				}
-				return
-			}
+			// if (streamStateInitial || streamStatePaused) && isPlayCommand {
+			// 	stream.Offset = offset
+			// 	if err := stream.Play(); err != nil {
+			// 		fmt.Printf("%s\n", err)
+			// 	} else {
+			// 		fmt.Printf("Playing\n")
+			// 	}
+			// 	return
+			// }
 
-			fmt.Printf("Pause requirements: %v, %v\n", streamStatePlaying, isPauseCommand)
-			if hasStream && streamStatePlaying && isPauseCommand {
-				fmt.Println(e.Message)
-				if err := stream.Pause(); err != nil {
-					fmt.Printf("%s\n", err)
-				} else {
-					offset = stream.Offset
-					fmt.Printf("Pausing\n")
-				}
-				return
-			}
+			// fmt.Printf("Pause requirements: %v, %v\n", streamStatePlaying, isPauseCommand)
+			// if hasStream && streamStatePlaying && isPauseCommand {
+			// 	fmt.Println(e.Message)
+			// 	if err := stream.Pause(); err != nil {
+			// 		fmt.Printf("%s\n", err)
+			// 	} else {
+			// 		offset = stream.Offset
+			// 		fmt.Printf("Pausing\n")
+			// 	}
+			// 	return
+			// }
 
 
-			fmt.Printf("Stop requirements: %v, %v\n", streamStatePlaying, isStopCommand)
-			if (streamStatePlaying || streamStatePaused) && isStopCommand {
-				if err := stream.Stop(); err != nil {
-					fmt.Printf("%s\n", err)
-				} else {
-					fmt.Printf("Stopped\n")
-					if err := os.Remove("downloaded.ogg"); err != nil {
-						fmt.Println("No se pudo borrar el archivo downloaded.ogg")
-					}
-				}
-				return
-			}
+			// fmt.Printf("Stop requirements: %v, %v\n", streamStatePlaying, isStopCommand)
+			// if (streamStatePlaying || streamStatePaused) && isStopCommand {
+			// 	if err := stream.Stop(); err != nil {
+			// 		fmt.Printf("%s\n", err)
+			// 	} else {
+			// 		fmt.Printf("Stopped\n")
+			// 		if err := os.Remove("downloaded.ogg"); err != nil {
+			// 			fmt.Println("No se pudo borrar el archivo downloaded.ogg")
+			// 		}
+			// 	}
+			// 	return
+			// }
 
 			// switch matches[0][1:] {
 			// case "play":
