@@ -1,16 +1,19 @@
-FROM golang:alpine AS builder
+FROM golang AS builder
 
-RUN apk update && apk add --no-cache git
-RUN apk add opus-dev gcc musl-dev
+RUN apt update
+RUN apt install -y libopus-dev gcc
 WORKDIR /build
 
 COPY . .
-RUN go build
+RUN GOOS=linux GOARCH=arm GOARM=7 go build
 RUN ls
 
-FROM qmcgaw/youtube-dl-alpine:latest
+FROM debian:buster
+RUN apt update
+RUN apt install -y youtube-dl ffmpeg
 
 COPY --from=builder /build/mumblebot /usr/bin
+
 ENV server ""
 ENV username "MusicBot"
 ENV password ""
