@@ -45,10 +45,7 @@ var (
 func main() {
 	var stream *gumbleffmpeg.Stream
 	var offset time.Duration
-
-	reCommand := regexAfterCommand(matchAvailableCommands, "")
-	rePlaySongHref := regexAfterCommand(playSong, urlWithinDoubleQuotes)
-
+	
 	playSource := func (client *gumble.Client, source string) {
 		if stream != nil {
 			stream.Stop()
@@ -136,6 +133,7 @@ func main() {
 	}
 
 	commandFunc[playSong] = func(e *gumble.TextMessageEvent) {
+		rePlaySongHref := regexAfterCommand(playSong, urlWithinDoubleQuotes)
 		if link, err := submatchExtract(rePlaySongHref, e.Message); !check(err) { 
 			playSource(e.Client, link)
 		}
@@ -198,6 +196,7 @@ func main() {
 		},
 
 		TextMessage: func(e *gumble.TextMessageEvent) {
+			reCommand := regexAfterCommand(matchAvailableCommands, "")
 			if e.Sender == nil {
 				return
 			}
