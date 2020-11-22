@@ -9,8 +9,9 @@ RUN go build
 
 FROM debian:buster AS installed_dependencies
 RUN apt-get update
-RUN apt-get install -y ffmpeg
+RUN apt-get install -y ffmpeg curl
 RUN curl -L https://yt-dl.org/downloads/latest/youtube-dl -o /usr/bin/youtube-dl
+RUN apt-get remove -y curl
 RUN chmod a+rx /usr/bin/youtube-dl
 
 FROM installed_dependencies
