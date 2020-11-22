@@ -6,7 +6,7 @@ WORKDIR /build
 
 COPY . .
 RUN GOOS=linux GOARCH=arm GOARM=7 go build
-RUN ls
+RUN file mumblebot
 
 FROM debian:buster
 RUN apt-get update
