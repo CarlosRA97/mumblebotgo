@@ -13,10 +13,4 @@ RUN apt-get install -y youtube-dl ffmpeg
 
 COPY --from=builder /build/mumblebot /usr/bin
 
-ENV server ""
-ENV username "MusicBot"
-ENV password ""
-ENV cert ""
-
-
-CMD [ "/usr/bin/mumblebot", "--server ${server}", "--username ${username}", "--insecure" ]
+CMD /usr/bin/mumblebot --server $MUMBLE_SERVER --username $MUMBLE_USERNAME --insecure
