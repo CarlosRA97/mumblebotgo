@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"regexp"
 	"strconv"
@@ -19,37 +18,43 @@ import (
 )
 
 const (
-	TempAudio = "downloaded.ogg"
+	tempAudio = "downloaded.ogg"
 
-	Play = "play"
-	Pause = "pause"
-	Stop = "stop"
-	Search = "search"
-	Volume = "v"
+	playSong = "play"
+	playPause = "p"
+	stop = "stop"
+	search = "search"
+	queue = "q"
+	volume = "v"
+	elapsed = "e"
+
+	wordsAfterCommand = "(\\w+[\\w| ]*)"
+	numberNotGreaterThan100 = "\\b(0|[1-9][0-9]?|100)\\b"
+	urlWithinDoubleQuotes = ".*(?:\")([https://|http://|www\\.]\\S*)(?:\")"
 )
 
 var (
 	commandFunc = make(map[string]func(*gumble.TextMessageEvent))
-	availableCommands = []string{Play, Pause, Stop, Search, Volume}
-	tempAudioPath = path.Join(os.TempDir(), TempAudio)
+	availableCommands = []string{playSong, playPause, stop, search, volume, elapsed, queue}
+	tempAudioPath = path.Join(os.TempDir(), tempAudio)
+	matchAvailableCommands = fmt.Sprintf("(%s)", strings.Join(availableCommands, "|"))
+	queueSongs = make([]string, 0, 10)
+	client *gumble.Client
 )
 
 func main() {
-	os.Remove(tempAudioPath)
 	var stream *gumbleffmpeg.Stream
 	var offset time.Duration
 
-	reCommand, err := regexp.Compile(fmt.Sprintf("(?:!)(%s)", strings.Join(availableCommands, "|")))
-	if check(err) { return }
-	reHref, err := regexp.Compile("(?:\")(https:|http:|www\\.)\\S*(?:\")")
-	if check(err) { return }
+	reCommand := regexAfterCommand(matchAvailableCommands, "")
+	rePlaySongHref := regexAfterCommand(playSong, urlWithinDoubleQuotes)
 
 	playSource := func (client *gumble.Client, source string) {
 		if stream != nil {
 			stream.Stop()
-			os.Remove(tempAudioPath)
 		}
-		stream = gumbleffmpeg.New(client, gumbleffmpeg.SourceFile(tempAudioPath))
+		sourceAudio := gumbleffmpeg.SourceExec("youtube-dl", "-f", "bestaudio", "--rm-cache-dir", "-q", "-o", "-", source)
+		stream = gumbleffmpeg.New(client, sourceAudio)
 		stream.Volume = 0.05
 		if err := stream.Play(); err != nil {
 			fmt.Printf("%s\n", err)
@@ -58,8 +63,31 @@ func main() {
 		}
 	}
 
-	submatchExtract := func (match [][]string) (string, error) {
+	go func() {
+		for {
+			if stream != nil {
+				switch stream.State() {
+					case gumbleffmpeg.StatePlaying: {
+						stream.Wait()
+						fmt.Println("He terminado la cancion")
+						if len(queueSongs) > 0 {
+							fmt.Printf("Siguente cancion %s\n", queueSongs[0])
+							playSource(client, queueSongs[0])
+							queueSongs = queueSongs[1:]
+						} else {
+							fmt.Println("No hay mas canciones en la cola")
+						}
+					}; break
+				}
+			}
+			time.Sleep(time.Second * 1)
+		}
+	}()
+
+	submatchExtract := func (re *regexp.Regexp, message string) (string, error) {
 		err := errors.New("No match")
+		fmt.Println(message)
+		match := re.FindAllStringSubmatch(message, -1)
 		fmt.Println(match)
 		if len(match) > 0 && len(match[0]) > 1 {
 			return match[0][1], nil
@@ -67,10 +95,28 @@ func main() {
 		return "", err
 	}
 
-	commandFunc[Volume] = func(e *gumble.TextMessageEvent) {
-		re, err := regexp.Compile(fmt.Sprintf("(?:!%s) *\\b(0|[1-9][0-9]?|100)\\b", Volume))
-		check(err)
-		number, err := submatchExtract(re.FindAllStringSubmatch(e.Message, -1))
+	commandFunc[queue] = func(e *gumble.TextMessageEvent) {
+		reQueueHref :=  regexAfterCommand(queue, urlWithinDoubleQuotes)
+		reQueueSearch := regexAfterCommand(queue, wordsAfterCommand)
+		if link, err := submatchExtract(reQueueHref, e.Message); !check(err) {
+			queueSongs = append(queueSongs, link)
+		}
+		if search, err := submatchExtract(reQueueSearch, e.Message); !check(err) {
+			queueSongs = append(queueSongs, fmt.Sprintf("ytsearch1:%s", search))
+		}
+		sendMessage(e, strings.Join(queueSongs, " -> "))
+	}
+
+	commandFunc[elapsed] = func(e *gumble.TextMessageEvent) {
+		if stream != nil {
+			sendMessage(e, stream.Elapsed().String())
+		}
+	}
+
+	commandFunc[volume] = func(e *gumble.TextMessageEvent) {
+		
+		re := regexAfterCommand(volume, numberNotGreaterThan100)
+		number, err := submatchExtract(re, e.Message)
 		if stream != nil && err == nil {
 			num, _ := strconv.ParseFloat(number, 32)
 			stream.Volume = float32(num/100)
@@ -82,50 +128,25 @@ func main() {
 		}
 	}
 
-	commandFunc[Search] = func(e *gumble.TextMessageEvent) {
-		re, err := regexp.Compile(fmt.Sprintf("(?:!%s) *(.*)", Search))
-		check(err)
-		searchMatch := re.FindAllStringSubmatch(e.Message, -1)
-		search := try(submatchExtract(searchMatch))
-		executeCommand(fmt.Sprintf("ytsearch1:%s", search))
-		playSource(e.Client, search)
+	commandFunc[search] = func(e *gumble.TextMessageEvent) {
+		re := regexAfterCommand(search, wordsAfterCommand)
+		if search, err := submatchExtract(re, e.Message); !check(err) {
+			playSource(e.Client, fmt.Sprintf("ytsearch1:%s", search))
+		}
 	}
 
-	commandFunc[Play] = func(e *gumble.TextMessageEvent) {
-		streamStateInitial := stream != nil && (
-			stream.State() == 0	||
-			stream.State() == gumbleffmpeg.StateInitial )
-		streamStatePaused := stream != nil && 
-			stream.State() == gumbleffmpeg.StatePaused
-
-		if stream == nil {
-			matchesLink := reHref.FindAllStringSubmatch(e.Message, -1)
-			link, err := submatchExtract(matchesLink)
-			fmt.Println(link)
-			if !check(err) { 
-				executeCommand(link)
-			} else {
-				return
-			}
+	commandFunc[playSong] = func(e *gumble.TextMessageEvent) {
+		if link, err := submatchExtract(rePlaySongHref, e.Message); !check(err) { 
 			playSource(e.Client, link)
-			return
-		}
-
-		if streamStateInitial || streamStatePaused {
-			stream.Offset = offset
-			if err := stream.Play(); err != nil {
-				fmt.Printf("%s\n", err)
-			} else {
-				fmt.Printf("Playing\n")
-			}
-			return
 		}
 	}
 
-	commandFunc[Pause] = func(e *gumble.TextMessageEvent) {
+	commandFunc[playPause] = func(e *gumble.TextMessageEvent) {
 		streamStatePlaying := stream != nil &&
 					stream.State() == gumbleffmpeg.StatePlaying
-		fmt.Printf("Pause requirements: %v\n", streamStatePlaying)
+		streamStatePaused := stream != nil && 
+					stream.State() == gumbleffmpeg.StatePaused
+
 		if streamStatePlaying {
 			fmt.Println(e.Message)
 			if err := stream.Pause(); err != nil {
@@ -136,9 +157,19 @@ func main() {
 			}
 			return
 		}
+
+		if streamStatePaused {
+			stream.Offset = offset
+			if err := stream.Play(); err != nil {
+				fmt.Printf("%s\n", err)
+			} else {
+				fmt.Printf("Playing\n")
+			}
+			return
+		}
 	}
 
-	commandFunc[Stop] = func(e *gumble.TextMessageEvent) {
+	commandFunc[stop] = func(e *gumble.TextMessageEvent) {
 		streamStatePaused := stream != nil && 
 					stream.State() == gumbleffmpeg.StatePaused
 		streamStatePlaying := stream != nil &&
@@ -150,9 +181,6 @@ func main() {
 			} else {
 				fmt.Printf("Stopped\n")
 				stream = nil
-				if err := os.Remove("downloaded.ogg"); err != nil {
-					fmt.Println("No se pudo borrar el archivo downloaded.ogg")
-				}
 			}
 			return
 		}
@@ -165,6 +193,7 @@ func main() {
 
 	gumbleutil.Main(gumbleutil.AutoBitrate, gumbleutil.Listener{
 		Connect: func(e *gumble.ConnectEvent) {
+			client = e.Client
 			fmt.Println("Connected to the server")
 		},
 
@@ -172,41 +201,31 @@ func main() {
 			if e.Sender == nil {
 				return
 			}
-
-			matchesCommand := reCommand.FindAllStringSubmatch(e.Message, -1)
-			fmt.Println(matchesCommand)		
 		
-			command, err := submatchExtract(matchesCommand)
-			// fmt.Println(command)
+			command, err := submatchExtract(reCommand, e.Message)
 			if check(err) { return }
 			commandFunc[command](e)
 		},
 	})
 }
 
-func try(msg string, err error) string {
-	if check(err) { return "" }
-	return msg
-}
-
 func check(err error) bool {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
+		fmt.Fprintf(os.Stderr, "%s\n", err)
 		return true
 	}
 	return false
 }
 
-func executeCommand(param string) {
-	cmd := exec.Command("youtube-dl","--extract-audio","--audio-format","vorbis", "--output", tempAudioPath,  param)
-	// "ytsearch1: " + e.Message[1:] + ""
-	if err := cmd.Run(); err == nil {
-		fmt.Printf("Descargado %s\n", param)
-	} else {
-		fmt.Printf("%s\n", err)
-	}
+func regexAfterCommand(command string, expr string) *regexp.Regexp {
+	return regexAfterCommandWithSpecialCharacter("", command, expr)
+}
+
+func regexAfterCommandWithSpecialCharacter(specialCharacter string, command string, expr string) *regexp.Regexp {
+	if specialCharacter == "" { specialCharacter = "!" }
+	return regexp.MustCompile(fmt.Sprintf("(?:%s%s) *%s", specialCharacter, command, expr))
 }
 
 func sendMessage(e *gumble.TextMessageEvent, msg string) {
-	e.Client.Send(&gumble.TextMessage{Message: msg, Channels: e.Channels, Sender: e.Sender, Users: e.Users})
+	client.Send(&gumble.TextMessage{Message: msg, Channels: e.Channels, Sender: e.Sender, Users: e.Users})
 }
