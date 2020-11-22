@@ -191,11 +191,16 @@ func main() {
 
 	gumbleutil.Main(gumbleutil.AutoBitrate, gumbleutil.Listener{
 		Connect: func(e *gumble.ConnectEvent) {
-			client = e.Client
+			if e.Client != nil {
+				client = e.Client
+			}
 			fmt.Println("Connected to the server")
 		},
 
 		TextMessage: func(e *gumble.TextMessageEvent) {
+			if e.Client != nil {
+				client = e.Client
+			}
 			reCommand := regexAfterCommand(matchAvailableCommands, "")
 			if e.Sender == nil {
 				return
@@ -226,5 +231,5 @@ func regexAfterCommandWithSpecialCharacter(specialCharacter string, command stri
 }
 
 func sendMessage(e *gumble.TextMessageEvent, msg string) {
-	client.Send(&gumble.TextMessage{Message: msg, Channels: e.Channels, Sender: e.Sender, Users: e.Users})
+	e.Client.Send(&gumble.TextMessage{Message: msg, Channels: e.Channels, Sender: e.Sender, Users: e.Users})
 }
