@@ -1,1 +1,1 @@
-docker build . -t carlosra97/mumblebot
+docker build --pull --rm -f "Dockerfile" -t mumblebot:latest "."
