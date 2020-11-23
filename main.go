@@ -62,7 +62,7 @@ func main() {
 			return
 		}
 
-		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.currentlyPlayingSong.(*sourceProvider.YoutubeSourceMetadata).Title, player.progress(), player.stream.Elapsed().String()))
+		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.currentlyPlayingSong.(*sourceProvider.YoutubeDLSourceMetadata).Title, player.progress(), player.stream.Elapsed().String()))
 	})
 
 	commands.add(queue, func(e *gumble.TextMessageEvent) {
@@ -121,7 +121,7 @@ func main() {
 	})
 
 	commands.add(help, func(e *gumble.TextMessageEvent) {
-		sendMessage(e, fmt.Sprintf("Comandos: %s\n", strings.Join(commands.getAll(), ", ")))
+		sendMessage(e, fmt.Sprintf("Comandos: %s<br>Mas informacion en <a href='https://rythmbot.co/features#list'>Rythmbot Command List</a>", strings.Join(commands.getAll(), ", ")))
 	})
 
 	matchAvailableCommands := fmt.Sprintf("(%s)\\b", strings.Join(commands.getAll(), "|"))

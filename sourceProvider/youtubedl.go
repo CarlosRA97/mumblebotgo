@@ -17,23 +17,23 @@ type ISourceProvider interface {
 	SourceMetadata() (interface{}, error)
 }
 
-func parseSourceMetadata(metadata string) (*YoutubeSourceMetadata, error) {
-	sourceMetadata := &YoutubeSourceMetadata{}
+func parseSourceMetadata(metadata string) (*YoutubeDLSourceMetadata, error) {
+	sourceMetadata := &YoutubeDLSourceMetadata{}
 	if err := json.Unmarshal([]byte(metadata), sourceMetadata); err != nil {
 		return nil, err
 	}
 	return sourceMetadata, nil
 }
 
-func (s *YoutubeSource) SetSource(value string) {
+func (s *YoutubeDLSource) SetSource(value string) {
 	s.value = value
 }
 
-func (s *YoutubeSource) Source() gumbleffmpeg.Source {
+func (s *YoutubeDLSource) Source() gumbleffmpeg.Source {
 	return gumbleffmpeg.SourceExec("youtube-dl", "-f", "bestaudio", "--rm-cache-dir", "-q", "-o", "-", s.value)
 }
 
-func (s *YoutubeSource) SourceMetadata() (interface{}, error) {
+func (s *YoutubeDLSource) SourceMetadata() (interface{}, error) {
 	cmd := exec.Command("youtube-dl", "-j", s.value)
 	var stdout, stderr bytes.Buffer
     cmd.Stdout = &stdout
@@ -60,11 +60,11 @@ func check(err error) bool {
 	return true
 }
 
-type YoutubeSource struct {
+type YoutubeDLSource struct {
 	value string
 }
 
-type YoutubeSourceMetadata struct {
+type YoutubeDLSourceMetadata struct {
 	ID                 string             `json:"id"`
 	Uploader           string             `json:"uploader"`
 	UploaderID         string             `json:"uploader_id"`

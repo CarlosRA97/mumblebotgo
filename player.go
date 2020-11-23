@@ -20,19 +20,19 @@ type Player struct {
 	client *gumble.Client
 	stream *gumbleffmpeg.Stream
 	currentlyPlayingSong interface{}
-	defaultVolume float32
+	volume float32
 	progressBar *ProgressBar
 	offset time.Duration
 }
 
 func NewPlayer() *Player {
 	return &Player{
-		sourceProvider: &sourceProvider.YoutubeSource{},
+		sourceProvider: &sourceProvider.YoutubeDLSource{},
 		queue: make([]string, 0, 10),
 		client: nil,
 		stream: nil,
 		currentlyPlayingSong: nil,
-		defaultVolume: 0.05,
+		volume: 0.05,
 		progressBar: nil,
 		offset: 0,
 	}
@@ -73,11 +73,12 @@ func (p *Player) play(source string) {
 
 	wg.Add(1)
 	p.stream = gumbleffmpeg.New(p.client, p.sourceProvider.Source())
+	p.stream.Volume = p.volume
 	wg.Done()
 	
 	go func () {
 		wg.Wait()
-		p.progressBar = NewBar(p.stream, p.currentlyPlayingSong.(*sourceProvider.YoutubeSourceMetadata).Duration)
+		p.progressBar = NewBar(p.stream, p.currentlyPlayingSong.(*sourceProvider.YoutubeDLSourceMetadata).Duration)
 	}()
 	
 	if err := p.stream.Play(); err != nil {
@@ -93,7 +94,10 @@ func (p *Player) stop(callback func (status string)) {
 	if p.hasStream() {
 		p.stream.Stop()
 		p.stream = nil
-		callback("Stopped")
+		p.currentlyPlayingSong = nil
+		if callback != nil {
+			callback("Stopped")
+		}
 	}
 }
 
@@ -104,6 +108,7 @@ func (p *Player) skip() {
 		} else {
 			fmt.Printf("Skipped\n")
 			p.stream = nil
+			p.currentlyPlayingSong = nil
 		}
 	}
 }
@@ -115,10 +120,12 @@ func (p *Player) queueHandler() {
 				case gumbleffmpeg.StatePlaying: {
 					p.stream.Wait()
 					fmt.Println("He terminado la cancion")
+					p.skip()
 					if source, err := p.dequeue(); err == nil {
 						fmt.Printf("Siguente cancion %s\n", source)
 						p.play(source)
 					} else {
+						p.stop(nil)
 						fmt.Println("No hay mas canciones en la cola")
 					}
 				}; break
@@ -196,11 +203,12 @@ func (p *Player) setVolume(volume float32) {
 	if p.hasStream() {
 		p.stream.Volume = volume
 	}
+	p.volume = volume
 }
 
 func (p *Player) normalizedVolume() int {
 	if p.hasStream() { 
 		return int(p.stream.Volume * 100)
 	}
-	return int(p.defaultVolume * 100)
+	return int(p.volume * 100)
 }
