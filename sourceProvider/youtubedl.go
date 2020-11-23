@@ -1,4 +1,4 @@
-package sources
+package sourceProvider
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"layeh.com/gumble/gumbleffmpeg"
 )
 
-type SourceProvider interface {
+type ISourceProvider interface {
 	SetSource(string)
 	Source() gumbleffmpeg.Source
 	SourceMetadata() (interface{}, error)

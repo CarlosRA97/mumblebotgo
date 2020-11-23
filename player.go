@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"mumblebot/sources"
+	"mumblebot/sourceProvider"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +15,7 @@ import (
 var wg = sync.WaitGroup{}
 
 type Player struct {
-	sourceProvider sources.SourceProvider
+	sourceProvider sourceProvider.ISourceProvider
 	queue []string
 	client *gumble.Client
 	stream *gumbleffmpeg.Stream
@@ -27,7 +27,7 @@ type Player struct {
 
 func NewPlayer() *Player {
 	return &Player{
-		sourceProvider: &sources.YoutubeSource{},
+		sourceProvider: &sourceProvider.YoutubeSource{},
 		queue: make([]string, 0, 10),
 		client: nil,
 		stream: nil,
@@ -38,7 +38,7 @@ func NewPlayer() *Player {
 	}
 }
 
-func (p *Player) setSourceProvider(provider sources.SourceProvider) {
+func (p *Player) setSourceProvider(provider sourceProvider.ISourceProvider) {
 	p.sourceProvider = provider
 }
 
@@ -77,14 +77,13 @@ func (p *Player) play(source string) {
 	
 	go func () {
 		wg.Wait()
-		p.progressBar = NewBar(p.stream, p.currentlyPlayingSong.(*sources.YoutubeSourceMetadata).Duration)
+		p.progressBar = NewBar(p.stream, p.currentlyPlayingSong.(*sourceProvider.YoutubeSourceMetadata).Duration)
 	}()
 	
 	if err := p.stream.Play(); err != nil {
 		fmt.Printf("%s\n", err)
 		return
 	}
-
 	
 	fmt.Printf("Playing %s\n", source)
 }

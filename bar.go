@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"strings"
 
 	"layeh.com/gumble/gumbleffmpeg"
@@ -29,7 +30,8 @@ func (b *ProgressBar) generate() string {
 	if b.stream == nil {
 		return ""
 	}
-	normalizedValue := b.stream.Elapsed().Seconds() / b.streamDuration
-	index := int(normalizedValue * float64(b.barLength))
-	return strings.Join([]string{strings.Repeat(b.line, index), strings.Repeat(b.line, b.barLength - index - 1)}, b.dot)
+	normalizedValue := math.Abs(b.stream.Elapsed().Seconds()) / math.Abs(b.streamDuration)
+	firstPart := int(math.Ceil(math.Abs(normalizedValue * float64(b.barLength))))
+	secondPart := int(math.Abs(float64(b.barLength - firstPart - 1)))
+	return strings.Join([]string{strings.Repeat(b.line, firstPart), strings.Repeat(b.line, secondPart)}, b.dot)
 }

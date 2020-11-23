@@ -4,7 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"mumblebot/sources"
+	"mumblebot/sourceProvider"
 	"os"
 	"regexp"
 	"strconv"
@@ -24,7 +24,6 @@ const (
 	search = "search"
 	queue = "q"
 	volume = "v"
-	elapsed = "e"
 	help = "h"
 
 	wordsAfterCommand = "(\\w+[\\w| ]*)"
@@ -63,7 +62,7 @@ func main() {
 			return
 		}
 
-		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.currentlyPlayingSong.(*sources.YoutubeSourceMetadata).Title, player.progress(), player.stream.Elapsed().String()))
+		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.currentlyPlayingSong.(*sourceProvider.YoutubeSourceMetadata).Title, player.progress(), player.stream.Elapsed().String()))
 	})
 
 	commands.add(queue, func(e *gumble.TextMessageEvent) {
@@ -77,12 +76,6 @@ func main() {
 			sendMessage(e, "No queued songs")
 		}
 		sendMessage(e, strings.Join(player.queue, " -> "))
-	})
-
-	commands.add(elapsed, func(e *gumble.TextMessageEvent) {
-		if player.hasStream() {
-			sendMessage(e, player.stream.Elapsed().String())
-		}
 	})
 
 	commands.add(volume, func(e *gumble.TextMessageEvent) {
