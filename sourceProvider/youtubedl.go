@@ -14,7 +14,9 @@ import (
 type ISourceProvider interface {
 	SetSource(string)
 	Source() gumbleffmpeg.Source
-	SourceMetadata() (interface{}, error)
+	Metadata() error
+	MetadataTitle() string
+	MetadataDuration() float64
 }
 
 func parseSourceMetadata(metadata string) (*YoutubeDLSourceMetadata, error) {
@@ -26,30 +28,45 @@ func parseSourceMetadata(metadata string) (*YoutubeDLSourceMetadata, error) {
 }
 
 func (s *YoutubeDLSource) SetSource(value string) {
-	s.value = value
+	s.source = value
 }
 
 func (s *YoutubeDLSource) Source() gumbleffmpeg.Source {
-	return gumbleffmpeg.SourceExec("youtube-dl", "-f", "bestaudio", "--rm-cache-dir", "-q", "-o", "-", s.value)
+	return gumbleffmpeg.SourceExec("youtube-dl", "-f", "bestaudio", "--rm-cache-dir", "-q", "-o", "-", s.source)
 }
 
-func (s *YoutubeDLSource) SourceMetadata() (interface{}, error) {
-	cmd := exec.Command("youtube-dl", "-j", s.value)
+func (s *YoutubeDLSource) Metadata() error {
+	cmd := exec.Command("youtube-dl", "-j", s.source)
 	var stdout, stderr bytes.Buffer
     cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 
 	if check(err) {
-		return nil, err
+		return err
 	}
 
 	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
 	fmt.Printf("out:\n%s\nerr:\n%s\n", outStr, errStr)
 	if metadata, err := parseSourceMetadata(outStr); errStr == "" && !check(err) {
-		return metadata, nil
+		s.metadata = metadata
+		return nil
 	}
-	return nil, errors.New(errStr)
+	return errors.New(errStr)
+}
+
+func (s *YoutubeDLSource) MetadataTitle() string {
+	if s.metadata != nil {
+		return s.metadata.Title
+	}
+	return ""
+}
+
+func (s *YoutubeDLSource) MetadataDuration() float64 {
+	if s.metadata != nil {
+		return s.metadata.Duration
+	}
+	return 0
 }
 
 func check(err error) bool {
@@ -61,7 +78,8 @@ func check(err error) bool {
 }
 
 type YoutubeDLSource struct {
-	value string
+	source string
+	metadata *YoutubeDLSourceMetadata
 }
 
 type YoutubeDLSourceMetadata struct {

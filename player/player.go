@@ -1,9 +1,10 @@
-package main
+package player
 
 import (
 	"errors"
 	"fmt"
 	"mumblebot/sourceProvider"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -12,73 +13,82 @@ import (
 	"layeh.com/gumble/gumbleffmpeg"
 )
 
-var wg = sync.WaitGroup{}
+
 
 type Player struct {
-	sourceProvider sourceProvider.ISourceProvider
+	SourceProvider sourceProvider.ISourceProvider
 	queue []string
 	client *gumble.Client
 	stream *gumbleffmpeg.Stream
-	currentlyPlayingSong interface{}
 	volume float32
+	CurrentlyPlaying bool
 	progressBar *ProgressBar
 	offset time.Duration
+	wg sync.WaitGroup
 }
 
 func NewPlayer() *Player {
 	return &Player{
-		sourceProvider: &sourceProvider.YoutubeDLSource{},
+		SourceProvider: &sourceProvider.YoutubeDLSource{},
 		queue: make([]string, 0, 10),
 		client: nil,
 		stream: nil,
-		currentlyPlayingSong: nil,
 		volume: 0.05,
+		CurrentlyPlaying: false,
 		progressBar: nil,
 		offset: 0,
+		wg: sync.WaitGroup{},
 	}
 }
 
 func (p *Player) setSourceProvider(provider sourceProvider.ISourceProvider) {
-	p.sourceProvider = provider
+	p.SourceProvider = provider
 }
 
-func (p *Player) playOrQueue(source string, callback func(status string)) {
-	if p.isStopped() {
-		p.play(source)
+func (p *Player) Elapsed() string {
+	if p.HasStream() {
+		return p.stream.Elapsed().String()
+	}
+	return ""
+}
+
+func (p *Player) PlayOrQueue(source string, callback func(status string)) {
+	if p.IsStopped() {
+		p.Play(source)
 		if len(strings.Split(source, "1:")) > 1 {
 			callback(fmt.Sprintf("Playing %s\n", strings.Split(source, "1:")[1]))
 		} else {
 			callback(fmt.Sprintf("Playing %s\n", source))
 		}
 	} else {
-		p.enqueue(source)
+		p.Enqueue(source)
 		callback(strings.Join(p.queue, " -> "))
 	}
 }
 
-func (p *Player) play(source string) {
-	if p.hasStream() {
+func (p *Player) Play(source string) {
+	if p.HasStream() {
 		p.stream.Stop()
 	}
 	
-	p.sourceProvider.SetSource(source)
+	p.SourceProvider.SetSource(source)
 
 	go func() {
-		wg.Add(1)
-		if currentlyPlayingSongMetadata, err := p.sourceProvider.SourceMetadata(); !check(err) {
-			p.currentlyPlayingSong = currentlyPlayingSongMetadata
+		p.wg.Add(1)
+		if err := p.SourceProvider.Metadata(); !check(err) {
+			p.CurrentlyPlaying = true
+			p.wg.Done()
 		}
-		wg.Done()
 	}()
 
-	wg.Add(1)
-	p.stream = gumbleffmpeg.New(p.client, p.sourceProvider.Source())
+	p.wg.Add(1)
+	p.stream = gumbleffmpeg.New(p.client, p.SourceProvider.Source())
 	p.stream.Volume = p.volume
-	wg.Done()
+	p.wg.Done()
 	
 	go func () {
-		wg.Wait()
-		p.progressBar = NewBar(p.stream, p.currentlyPlayingSong.(*sourceProvider.YoutubeDLSourceMetadata).Duration)
+		p.wg.Wait()
+		p.progressBar = NewBar(p.stream, p.SourceProvider.MetadataDuration())
 	}()
 	
 	if err := p.stream.Play(); err != nil {
@@ -89,43 +99,47 @@ func (p *Player) play(source string) {
 	fmt.Printf("Playing %s\n", source)
 }
 
-func (p *Player) stop(callback func (status string)) {
+func (p *Player) Stop(callback func (status string)) {
 	p.queue = make([]string, 0, 10)
-	if p.hasStream() {
+	if p.HasStream() {
 		p.stream.Stop()
 		p.stream = nil
-		p.currentlyPlayingSong = nil
+		p.CurrentlyPlaying = false
 		if callback != nil {
 			callback("Stopped")
 		}
 	}
 }
 
-func (p *Player) skip() {
-	if p.isPlayingOrPaused() {
+func (p *Player) Skip() {
+	if p.IsPlayingOrPaused() {
 		if err := p.stream.Stop(); err != nil {
 			fmt.Printf("%s\n", err)
 		} else {
 			fmt.Printf("Skipped\n")
 			p.stream = nil
-			p.currentlyPlayingSong = nil
+			p.CurrentlyPlaying = false
 		}
 	}
 }
 
-func (p *Player) queueHandler() {
+func (p *Player) Queue() []string {
+	return p.queue
+}
+
+func (p *Player) QueueHandler() {
 	for {
-		if p.hasStream() {
+		if p.HasStream() {
 			switch p.stream.State() {
 				case gumbleffmpeg.StatePlaying: {
 					p.stream.Wait()
 					fmt.Println("He terminado la cancion")
-					p.skip()
-					if source, err := p.dequeue(); err == nil {
+					p.Skip()
+					if source, err := p.Dequeue(); err == nil {
 						fmt.Printf("Siguente cancion %s\n", source)
-						p.play(source)
+						p.Play(source)
 					} else {
-						p.stop(nil)
+						p.Stop(nil)
 						fmt.Println("No hay mas canciones en la cola")
 					}
 				}; break
@@ -135,11 +149,11 @@ func (p *Player) queueHandler() {
 	}	
 }
 
-func (p *Player) enqueue(source string) {
+func (p *Player) Enqueue(source string) {
 	p.queue = append(p.queue, source)
 }
 
-func (p *Player) dequeue() (value string, err error) {
+func (p *Player) Dequeue() (value string, err error) {
 	if len(p.queue) > 0 {
 		value = p.queue[0]
 		p.queue = p.queue[1:]
@@ -148,10 +162,10 @@ func (p *Player) dequeue() (value string, err error) {
 	return "", errors.New("No more items")
 }
 
-func (p *Player) playPause(callback func (status string)) {
-	streamStatePlaying := p.hasStream() &&
+func (p *Player) PlayPause(callback func (status string)) {
+	streamStatePlaying := p.HasStream() &&
 				p.stream.State() == gumbleffmpeg.StatePlaying
-	streamStatePaused := p.hasStream() && 
+	streamStatePaused := p.HasStream() && 
 				p.stream.State() == gumbleffmpeg.StatePaused
 
 	if streamStatePlaying {
@@ -175,40 +189,48 @@ func (p *Player) playPause(callback func (status string)) {
 	}
 }
 
-func (p *Player) hasStream() bool {
+func (p *Player) HasStream() bool {
 	return p.stream != nil
 }
 
-func (p *Player) isStopped() bool {
-	return !p.hasStream() || (p.hasStream() && p.stream.State() == gumbleffmpeg.StateStopped)
+func (p *Player) IsStopped() bool {
+	return !p.HasStream() || (p.HasStream() && p.stream.State() == gumbleffmpeg.StateStopped)
 }
 
-func (p *Player) isPlayingOrPaused() bool {
-	streamStatePaused := p.hasStream() && 
+func (p *Player) IsPlayingOrPaused() bool {
+	streamStatePaused := p.HasStream() && 
 					p.stream.State() == gumbleffmpeg.StatePaused
-	streamStatePlaying := p.hasStream() &&
+	streamStatePlaying := p.HasStream() &&
 					p.stream.State() == gumbleffmpeg.StatePlaying
 	return streamStatePlaying || streamStatePaused
 }
 
-func (p *Player) progress() string {
+func (p *Player) Progress() string {
 	return p.progressBar.generate()
 }
 
-func (p *Player) setClient(client *gumble.Client) {
+func (p *Player) SetClient(client *gumble.Client) {
 	p.client = client
 }
 
-func (p *Player) setVolume(volume float32) {
-	if p.hasStream() {
+func (p *Player) SetVolume(volume float32) {
+	if p.HasStream() {
 		p.stream.Volume = volume
 	}
 	p.volume = volume
 }
 
-func (p *Player) normalizedVolume() int {
-	if p.hasStream() { 
+func (p *Player) NormalizedVolume() int {
+	if p.HasStream() { 
 		return int(p.stream.Volume * 100)
 	}
 	return int(p.volume * 100)
+}
+
+func check(err error) bool {
+	if err == nil {
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "%s\n", err)
+	return true
 }

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"mumblebot/sourceProvider"
+	"mumblebot/player"
 	"os"
 	"regexp"
 	"strconv"
@@ -33,7 +33,7 @@ const (
 
 func main() {	
 	commands := NewCommands()
-	player := NewPlayer()
+	player := player.NewPlayer()
 
 	reQueueHref :=  regexAfterCommand(queue, urlWithinDoubleQuotes)
 	reQueueSearch := regexAfterCommand(queue, wordsAfterCommand)
@@ -53,39 +53,39 @@ func main() {
 	}
 
 	commands.add(nowPlaying, func(e *gumble.TextMessageEvent) {
-		if !player.hasStream() {
+		if !player.HasStream() {
 			sendMessage(e, "Nothing playing")
 			return
 		}
-		if player.currentlyPlayingSong == nil {
+		if !player.CurrentlyPlaying {
 			sendMessage(e, "Searching info")
 			return
 		}
 
-		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.currentlyPlayingSong.(*sourceProvider.YoutubeDLSourceMetadata).Title, player.progress(), player.stream.Elapsed().String()))
+		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.SourceProvider.MetadataTitle(), player.Progress(), player.Elapsed()))
 	})
 
 	commands.add(queue, func(e *gumble.TextMessageEvent) {
 		if link, err := submatchExtract(reQueueHref, e.Message); !check(err) {
-			player.enqueue(link)
+			player.Enqueue(link)
 		}
 		if search, err := submatchExtract(reQueueSearch, e.Message); !check(err) {
-			player.enqueue(fmt.Sprintf("ytsearch1:%s", search))
+			player.Enqueue(fmt.Sprintf("ytsearch1:%s", search))
 		}
-		if len(player.queue) == 0 {
+		if len(player.Queue()) == 0 {
 			sendMessage(e, "No queued songs")
 		}
-		sendMessage(e, strings.Join(player.queue, " -> "))
+		sendMessage(e, strings.Join(player.Queue(), " -> "))
 	})
 
 	commands.add(volume, func(e *gumble.TextMessageEvent) {
 		
-		if number, err := submatchExtract(reVolumeWithIn100, e.Message); player.hasStream() && err == nil {
+		if number, err := submatchExtract(reVolumeWithIn100, e.Message); player.HasStream() && err == nil {
 			num, _ := strconv.ParseFloat(number, 32)
-			player.setVolume(float32(num/100))
+			player.SetVolume(float32(num/100))
 		}
 
-		sendMessage(e, fmt.Sprintf("Volume: %v%%\n", player.normalizedVolume()))
+		sendMessage(e, fmt.Sprintf("Volume: %v%%\n", player.NormalizedVolume()))
 	})
 
 	commands.add(search, func(e *gumble.TextMessageEvent) {
@@ -97,27 +97,27 @@ func main() {
 			sendMessage(e, status)
 		}
 		if link, err := submatchExtract(rePlaySongHref, e.Message); !check(err) { 
-			player.playOrQueue(link, send)
+			player.PlayOrQueue(link, send)
 		}
 		if search, err := submatchExtract(rePlaySongSearch, e.Message); !check(err) {
-			player.playOrQueue(fmt.Sprintf("ytsearch1:%s", search), send)
+			player.PlayOrQueue(fmt.Sprintf("ytsearch1:%s", search), send)
 		}
 	})
 
 	commands.add(playPause, func(e *gumble.TextMessageEvent) {
-		player.playPause(func(status string) {
+		player.PlayPause(func(status string) {
 			sendMessage(e, status)
 		})
 	})
 
 	commands.add(stop, func(e *gumble.TextMessageEvent) {
-		player.stop(func(status string) {
+		player.Stop(func(status string) {
 			sendMessage(e, status)
 		})
 	})
 
 	commands.add(skip, func(e *gumble.TextMessageEvent) {
-		player.skip()
+		player.Skip()
 	})
 
 	commands.add(help, func(e *gumble.TextMessageEvent) {
@@ -134,8 +134,8 @@ func main() {
 
 	gumbleutil.Main(gumbleutil.AutoBitrate, gumbleutil.Listener{
 		Connect: func(e *gumble.ConnectEvent) {
-			player.setClient(e.Client)
-			go player.queueHandler()
+			player.SetClient(e.Client)
+			go player.QueueHandler()
 			fmt.Println("Connected to the server")
 		},
 
