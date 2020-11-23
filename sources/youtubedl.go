@@ -1,8 +1,70 @@
-package main
+package sources
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 
-type SourceMetadata struct {
+	"layeh.com/gumble/gumbleffmpeg"
+)
+
+type SourceProvider interface {
+	SetSource(string)
+	Source() gumbleffmpeg.Source
+	SourceMetadata() (interface{}, error)
+}
+
+func parseSourceMetadata(metadata string) (*YoutubeSourceMetadata, error) {
+	sourceMetadata := &YoutubeSourceMetadata{}
+	if err := json.Unmarshal([]byte(metadata), sourceMetadata); err != nil {
+		return nil, err
+	}
+	return sourceMetadata, nil
+}
+
+func (s *YoutubeSource) SetSource(value string) {
+	s.value = value
+}
+
+func (s *YoutubeSource) Source() gumbleffmpeg.Source {
+	return gumbleffmpeg.SourceExec("youtube-dl", "-f", "bestaudio", "--rm-cache-dir", "-q", "-o", "-", s.value)
+}
+
+func (s *YoutubeSource) SourceMetadata() (interface{}, error) {
+	cmd := exec.Command("youtube-dl", "-j", s.value)
+	var stdout, stderr bytes.Buffer
+    cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	if check(err) {
+		return nil, err
+	}
+
+	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
+	fmt.Printf("out:\n%s\nerr:\n%s\n", outStr, errStr)
+	if metadata, err := parseSourceMetadata(outStr); errStr == "" && !check(err) {
+		return metadata, nil
+	}
+	return nil, errors.New(errStr)
+}
+
+func check(err error) bool {
+	if err == nil {
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "%s\n", err)
+	return true
+}
+
+type YoutubeSource struct {
+	value string
+}
+
+type YoutubeSourceMetadata struct {
 	ID                 string             `json:"id"`
 	Uploader           string             `json:"uploader"`
 	UploaderID         string             `json:"uploader_id"`
@@ -131,12 +193,4 @@ type RequestedFormats struct {
 	Protocol          string            `json:"protocol"`
 	HTTPHeaders       HTTPHeaders       `json:"http_headers"`
 	Abr               int               `json:"abr,omitempty"`
-}
-
-func parseSourceMetadata(metadata string) (*SourceMetadata, error) {
-	sourceMetadata := &SourceMetadata{}
-	if err := json.Unmarshal([]byte(metadata), sourceMetadata); err != nil {
-		return nil, err
-	}
-	return sourceMetadata, nil
 }
