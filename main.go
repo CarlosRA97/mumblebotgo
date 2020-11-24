@@ -57,7 +57,7 @@ func main() {
 			sendMessage(e, "Nothing playing")
 			return
 		}
-		if !player.CurrentlyPlaying {
+		if !player.IsMetadataAvailable() {
 			sendMessage(e, "Searching info")
 			return
 		}

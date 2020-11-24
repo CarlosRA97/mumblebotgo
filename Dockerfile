@@ -1,10 +1,11 @@
 FROM golang:alpine AS builder
 
 RUN apk update && apk add --no-cache git
-RUN apk add opus-dev musl-dev
+RUN apk add opus-dev gcc musl-dev
 WORKDIR /build
 
 COPY . .
+RUN go get -d -v -u
 RUN go build
 
 FROM carlosra97/youtube-dl-alpine:latest

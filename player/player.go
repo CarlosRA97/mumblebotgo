@@ -21,7 +21,7 @@ type Player struct {
 	client *gumble.Client
 	stream *gumbleffmpeg.Stream
 	volume float32
-	CurrentlyPlaying bool
+	metadataAvailable bool
 	progressBar *ProgressBar
 	offset time.Duration
 	wg sync.WaitGroup
@@ -34,7 +34,7 @@ func NewPlayer() *Player {
 		client: nil,
 		stream: nil,
 		volume: 0.05,
-		CurrentlyPlaying: false,
+		metadataAvailable: false,
 		progressBar: nil,
 		offset: 0,
 		wg: sync.WaitGroup{},
@@ -43,6 +43,10 @@ func NewPlayer() *Player {
 
 func (p *Player) setSourceProvider(provider sourceProvider.ISourceProvider) {
 	p.SourceProvider = provider
+}
+
+func (p *Player) IsMetadataAvailable() bool {
+	return p.metadataAvailable
 }
 
 func (p *Player) Elapsed() string {
@@ -76,7 +80,7 @@ func (p *Player) Play(source string) {
 	go func() {
 		p.wg.Add(1)
 		if err := p.SourceProvider.Metadata(); !check(err) {
-			p.CurrentlyPlaying = true
+			p.metadataAvailable = true
 			p.wg.Done()
 		}
 	}()
@@ -87,8 +91,10 @@ func (p *Player) Play(source string) {
 	p.wg.Done()
 	
 	go func () {
+		fmt.Println("gofunc progressbar")
 		p.wg.Wait()
 		p.progressBar = NewBar(p.stream, p.SourceProvider.MetadataDuration())
+		p.metadataAvailable = true
 	}()
 	
 	if err := p.stream.Play(); err != nil {
@@ -104,7 +110,7 @@ func (p *Player) Stop(callback func (status string)) {
 	if p.HasStream() {
 		p.stream.Stop()
 		p.stream = nil
-		p.CurrentlyPlaying = false
+		p.metadataAvailable = false
 		if callback != nil {
 			callback("Stopped")
 		}
@@ -118,7 +124,7 @@ func (p *Player) Skip() {
 		} else {
 			fmt.Printf("Skipped\n")
 			p.stream = nil
-			p.CurrentlyPlaying = false
+			p.metadataAvailable = false
 		}
 	}
 }
