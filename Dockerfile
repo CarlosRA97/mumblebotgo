@@ -1,7 +1,7 @@
 FROM golang:alpine AS builder
 
 RUN apk update && apk add --no-cache git
-RUN apk add opus-dev gcc musl-dev
+RUN apk add opus-dev musl-dev
 WORKDIR /build
 
 COPY . .
