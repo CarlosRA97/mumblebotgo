@@ -7,7 +7,7 @@ WORKDIR /build
 COPY . .
 RUN go build
 
-FROM qmcgaw/youtube-dl-alpine:latest
+FROM carlosra97/youtube-dl-alpine:latest
 
 COPY --from=builder /build/mumblebot /usr/bin
 
