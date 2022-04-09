@@ -3,29 +3,14 @@ package player
 import (
 	"errors"
 	"fmt"
+	"log"
 	"mumblebot/sourceProvider"
-	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"layeh.com/gumble/gumble"
 	"layeh.com/gumble/gumbleffmpeg"
 )
-
-
-
-type Player struct {
-	SourceProvider sourceProvider.ISourceProvider
-	queue []string
-	client *gumble.Client
-	stream *gumbleffmpeg.Stream
-	volume float32
-	metadataAvailable bool
-	progressBar *ProgressBar
-	offset time.Duration
-	wg sync.WaitGroup
-}
 
 func NewPlayer() *Player {
 	return &Player{
@@ -70,6 +55,14 @@ func (p *Player) PlayOrQueue(source string, callback func(status string)) {
 	}
 }
 
+func (p *Player) metadataCheckIfAvailable() {
+	p.wg.Add(1)
+	if err := p.SourceProvider.Metadata(); !check(err) {
+		p.metadataAvailable = true
+		p.wg.Done()
+	}
+}
+
 func (p *Player) Play(source string) {
 	if p.HasStream() {
 		p.stream.Stop()
@@ -77,13 +70,7 @@ func (p *Player) Play(source string) {
 	
 	p.SourceProvider.SetSource(source)
 
-	go func() {
-		p.wg.Add(1)
-		if err := p.SourceProvider.Metadata(); !check(err) {
-			p.metadataAvailable = true
-			p.wg.Done()
-		}
-	}()
+	go p.metadataCheckIfAvailable()
 
 	p.wg.Add(1)
 	p.stream = gumbleffmpeg.New(p.client, p.SourceProvider.Source())
@@ -91,18 +78,18 @@ func (p *Player) Play(source string) {
 	p.wg.Done()
 	
 	go func () {
-		fmt.Println("gofunc progressbar")
+		log.Println("gofunc progressbar")
 		p.wg.Wait()
 		p.progressBar = NewBar(p.stream, p.SourceProvider.MetadataDuration())
 		p.metadataAvailable = true
 	}()
 	
 	if err := p.stream.Play(); err != nil {
-		fmt.Printf("%s\n", err)
+		log.Printf("%s\n", err)
 		return
 	}
 	
-	fmt.Printf("Playing %s\n", source)
+	log.Printf("Playing %s\n", source)
 }
 
 func (p *Player) Stop(callback func (status string)) {
@@ -120,9 +107,9 @@ func (p *Player) Stop(callback func (status string)) {
 func (p *Player) Skip() {
 	if p.IsPlayingOrPaused() {
 		if err := p.stream.Stop(); err != nil {
-			fmt.Printf("%s\n", err)
+			log.Printf("%s\n", err)
 		} else {
-			fmt.Printf("Skipped\n")
+			log.Printf("Skipped\n")
 			p.stream = nil
 			p.metadataAvailable = false
 		}
@@ -131,28 +118,6 @@ func (p *Player) Skip() {
 
 func (p *Player) Queue() []string {
 	return p.queue
-}
-
-func (p *Player) QueueHandler() {
-	for {
-		if p.HasStream() {
-			switch p.stream.State() {
-				case gumbleffmpeg.StatePlaying: {
-					p.stream.Wait()
-					fmt.Println("He terminado la cancion")
-					p.Skip()
-					if source, err := p.Dequeue(); err == nil {
-						fmt.Printf("Siguente cancion %s\n", source)
-						p.Play(source)
-					} else {
-						p.Stop(nil)
-						fmt.Println("No hay mas canciones en la cola")
-					}
-				}; break
-			}
-		}
-		time.Sleep(time.Second * 1)
-	}	
 }
 
 func (p *Player) Enqueue(source string) {
@@ -176,10 +141,10 @@ func (p *Player) PlayPause(callback func (status string)) {
 
 	if streamStatePlaying {
 		if err := p.stream.Pause(); err != nil {
-			fmt.Printf("%s\n", err)
+			log.Printf("%s\n", err)
 		} else {
 			p.offset = p.stream.Offset
-			fmt.Printf("Pausing\n")
+			log.Printf("Pausing\n")
 			callback("Pause")	
 		}
 	}
@@ -187,9 +152,9 @@ func (p *Player) PlayPause(callback func (status string)) {
 	if streamStatePaused {
 		p.stream.Offset = p.offset
 		if err := p.stream.Play(); err != nil {
-			fmt.Printf("%s\n", err)
+			log.Printf("%s\n", err)
 		} else {
-			fmt.Printf("Playing\n")
+			log.Printf("Playing\n")
 			callback("Playing")
 		}
 	}
@@ -237,6 +202,6 @@ func check(err error) bool {
 	if err == nil {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "%s\n", err)
+	log.Printf("%s\n", err)
 	return true
 }

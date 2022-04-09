@@ -1,0 +1,1 @@
+sudo docker run -d --restart=on-failure --env-file secret/mumblebot.env carlosra97/mumblebot

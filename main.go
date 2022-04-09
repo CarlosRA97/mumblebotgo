@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"mumblebot/player"
 	"os"
 	"regexp"
@@ -62,7 +63,13 @@ func main() {
 			return
 		}
 
+		if player.SourceProvider.MetadataIsLive() {
+			sendMessage(e, fmt.Sprintf("<h2>%s</h2> <h3><strong>It's Live</strong></h3>", player.SourceProvider.MetadataTitle()))
+			return
+		}
+
 		sendMessage(e, fmt.Sprintf("<h2>%s</h2> ❨%s❩ %s", player.SourceProvider.MetadataTitle(), player.Progress(), player.Elapsed()))
+		
 	})
 
 	commands.add(queue, func(e *gumble.TextMessageEvent) {
@@ -135,17 +142,16 @@ func main() {
 	gumbleutil.Main(gumbleutil.AutoBitrate, gumbleutil.Listener{
 		Connect: func(e *gumble.ConnectEvent) {
 			player.SetClient(e.Client)
-			go player.QueueHandler()
-			fmt.Println("Connected to the server")
+			player.Handlers()
+			log.Println("Connected to the server")
 		},
 
 		TextMessage: func(e *gumble.TextMessageEvent) {
-			if e.Sender == nil {
-				return
+			if e.Sender == nil { return }
+			if command, err := submatchExtract(reCommand, e.Message); !check(err) {
+				commands.execute(command, e)
 			}
-			command, err := submatchExtract(reCommand, e.Message)
-			if check(err) { return }
-			commands.execute(command, e)
+			
 		},
 	})
 }

@@ -1,17 +1,22 @@
 FROM golang:alpine AS builder
 
-RUN apk update && apk add --no-cache git
-RUN apk add opus-dev gcc musl-dev
+RUN apk upgrade && apk add --upgrade opus-dev gcc musl-dev git
 WORKDIR /build
 
 COPY . .
 # RUN go get -d -v -u
 RUN go build
 
-FROM carlosra97/youtube-dl-alpine:latest
+FROM alpine:latest
+
+RUN apk update && apk add --upgrade yt-dlp opus ffmpeg
 
 COPY --from=builder /build/mumblebot /usr/bin
+COPY entrypoint.sh /usr/bin
+
+RUN chmod +x /usr/bin/entrypoint.sh
 
 ENV MUMBLE_OPTIONS="--insecure"
+ENV AUTO_UPDATE_YDLP=1
 
-CMD /usr/bin/mumblebot --server $MUMBLE_SERVER --username $MUMBLE_USERNAME $MUMBLE_OPTIONS
+CMD entrypoint.sh
