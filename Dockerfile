@@ -7,7 +7,7 @@ COPY . .
 # RUN go get -d -v -u
 RUN go build
 
-FROM alpine:latest
+FROM alpine:3.18.3
 
 RUN apk update && apk add --upgrade yt-dlp opus ffmpeg
 
